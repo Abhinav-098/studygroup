@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Group Study App</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+    <!-- YouTube Video Section -->
+    <div id="video-section">
+        <input type="text" id="video-url" placeholder="Enter YouTube URL">
+        <button onclick="submitUrl()">Load Video</button>
+        <div id="video-player"></div>
+    </div>
+
+    <!-- Chat Section -->
+    <div id="chat-section">
+        <h3>Group Chat</h3>
+        <div id="chat-messages" style="border: 1px solid #ccc; height: 300px; overflow-y: scroll;"></div>
+        <input type="text" id="chat-input" placeholder="Type a message">
+        <button onclick="sendMessage()">Send</button>
+    </div>
+
+    <!-- File Upload Section -->
+    <div id="file-upload-section">
+        <h3>Upload Study Material</h3>
+        <form action="/upload" method="post" enctype="multipart/form-data">
+            <input type="file" name="file">
+            <button type="submit">Upload</button><p>
+                <h3>
+                    Credits:-<br>
+                    Abhinav Aryan(Samir Roy)
+                </h3>
+            </p>
+        </form>
+    </div>
+
+    <!-- Include Socket.IO and YouTube API -->
+    <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
+    <script src="https://www.youtube.com/iframe_api"></script>
+
+    <script>
+        var socket = io();
+        var player;
+        var isInitiator = false;
+
+        // Ensure YouTube API is ready globally
+        function onYouTubeIframeAPIReady() {
+            console.log("YouTube API ready");
+        }
+
+        // Chat functionality
+        function sendMessage() {
+            var message = document.getElementById("chat-input").value;
+            if (message) {
+                socket.emit('chat_message', message);  // Emit chat message to server
+                document.getElementById("chat-input").value = "";  // Clear input field
+            }
+        }
+
+        // Listen for chat messages from the server
+        socket.on('message', function(msg) {
+            displayMessage(msg);
+        });
+
+        // Function to display chat messages in the chat section
+        function displayMessage(msg) {
+            var chatMessages = document.getElementById("chat-messages");
+            var newMessage = document.createElement("div");
+            newMessage.textContent = msg;
+            chatMessages.appendChild(newMessage);
+            chatMessages.scrollTop = chatMessages.scrollHeight;  // Scroll to the bottom
+        }
+
+        // Video Sync and URL Change Handling
+        function submitUrl() {
+            var videoUrl = document.getElementById("video-url").value;
+            var videoId = extractVideoId(videoUrl);
+            if (videoId) {
+                socket.emit('url_change', videoUrl);  // Emit URL change to server
+                loadVideo(videoId);
+            } else {
+                alert("Please enter a valid YouTube URL.");
+            }
+        }
+
+        function extractVideoId(url) {
+            var videoId = null;
+            var youtubeRegex = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+            var match = url.match(youtubeRegex);
+            if (match && match[1]) {
+                videoId = match[1];
+            }
+            return videoId;
+        }
+
+        function loadVideo(videoId) {
+            if (player) {
+                player.destroy();  // Remove old player if exists
+            }
+            player = new YT.Player('video-player', {
+                height: '360',
+                width: '640',
+                videoId: videoId,
+                events: {
+                    'onStateChange': onPlayerStateChange,
+                    'onReady': function() {
+                        isInitiator = true;
+                    }
+                }
+            });
+        }
+
+        function onPlayerStateChange(event) {
+            if (isInitiator) {
+                var data = {
+                    'state': event.data,
+                    'time': player.getCurrentTime()
+                };
+                socket.emit('video_event', data);
+            }
+        }
+
+        socket.on('video_event', function(data) {
+            if (!isInitiator) {
+                if (data.state == YT.PlayerState.PLAYING) {
+                    player.seekTo(data.time);
+                    player.playVideo();
+                } else if (data.state == YT.PlayerState.PAUSED) {
+                    player.seekTo(data.time);
+                    player.pauseVideo();
+                }
+            }
+        });
+
+        socket.on('url_change', function(url) {
+            isInitiator = false;
+            var videoId = extractVideoId(url);
+            loadVideo(videoId);  // Load the video when URL is changed by others
+        });
+    </script>
+
+</body>
+</html>
